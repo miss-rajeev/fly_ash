@@ -485,12 +485,24 @@ def main():
                     plant_demand_upd=pd.read_csv('plant_demand_upd.csv')
                # plant_demand_upd['grade_new']=plant_demand_upd['Grade']+'='+plant_demand_upd['Category']
                 except:
-                    plant_demand_upd=pd.DataFrame()
-                    plant_demand_upd['Plant_key']=len(plant_demand['grade_new'].unique().tolist())*plant_demand['Plant_key'].unique().tolist()
-                    plant_demand_upd['grade_new']=len(plant_demand['Plant_key'].unique().tolist())*plant_demand['grade_new'].unique().tolist()
-                    plant_demand_upd[['Grade', 'Category']]=plant_demand_upd['grade_new'].str.split("=",expand=True)
-                    plant_demand_upd=pd.merge(plant_demand_upd,plant_demand,how='left',on=['Plant_key','grade_new'])
+                    plant_all_comb=pd.DataFrame()
+#                    plant_demand_upd['Plant_key']=len(plant_demand['grade_new'].unique().tolist())*plant_demand['Plant_key'].unique().tolist()
+#                    plant_demand_upd['grade_new']=len(plant_demand['Plant_key'].unique().tolist())*plant_demand['grade_new'].unique().tolist()
+                    plant_demand[['Grade', 'Category']]=plant_demand['grade_new'].str.split("=",expand=True)
+                    b=plant_demand['Plant'].unique().tolist()
+                    a1=plant_demand['grade_new'].unique().tolist()
+                    plant_all_comb['combine']=[[x,y] for x in a1 for y in b]
+                    plant_all_comb['grade_new']=plant_all_comb['combine'].str[0]
+                    plant_all_comb['Plant']=plant_all_comb['combine'].str[1]
+                    del plant_all_comb['combine']      
+                    
+                    plant_all_comb[['Grade', 'Category']]=plant_all_comb['grade_new'].str.split("=",expand=True)
+                    plant_demand=plant_demand.groupby(['Plant', 'Grade', 'Category','grade_new'])['Demand_yearly'].sum().reset_index()
+                    plant_demand_upd=pd.merge(plant_all_comb,plant_demand,how='left',on=['Plant', 'Grade', 'Category','grade_new'])
                     plant_demand_upd=plant_demand_upd.fillna(0)
+                    
+                    
+
                 clear_linkagesp(29)
                 st.markdown("<h1 style='text-align: center; color: red;'>Fly Ash Procurement Dashboard</h1>", unsafe_allow_html=True)
                 #st.image(utc)
@@ -498,28 +510,28 @@ def main():
                 #st.sidebar.markdown(f"***Plant***")
                 #creating dataframe for updating particular plant capacity
                 df_category=pd.DataFrame()
-                plant_demand[['Grade', 'Category']]=plant_demand_upd['grade_new'].str.split("=",expand=True)
                 df_category['Category']=plant_demand['Category'].unique().tolist()+plant_demand['Category'].unique().tolist()
                 df_category['Grade']=plant_demand['Grade'].unique().tolist()+plant_demand['Grade'].unique().tolist()+plant_demand['Grade'].unique().tolist()
                 
                 #select plant to change plant capacity
                 st.subheader("**Plant Filters**")
                 st.write("Select appropriate filters for plant")
-                plant_demand_change=st.selectbox("Select a Plant",plant_demand['Plant_key'].unique().tolist())
+                plant_demand_change=st.selectbox("Select a Plant",plant_demand['Plant'].unique().tolist())
                 plant_demand_change_list=[plant_demand_change]
                 #plant_demand_change_list=["APCW"]
-                plant_demand1_change=plant_demand[plant_demand['Plant_key'].isin(plant_demand_change_list)]
+                plant_demand1_change=plant_demand[plant_demand['Plant'].isin(plant_demand_change_list)]
                 
                 #make all combinations of selected plant
                 df_category=pd.merge(df_category,plant_demand1_change[['Grade', 'Category', 'Demand_yearly']],how='left',on=['Category','Grade'])
                 df_category=df_category.fillna(0)
-                #st.write(df_category)
+#                st.write(df_category)
                 #st.write(plant_demand1_change)
                 
                 
                 #select material group (fly ash type)
                 material_group_select=st.selectbox("Select a grade",df_category['Grade'].unique().tolist())
-                df_category=df_category[df_category['Grade']==material_group_select]
+                material_group_select_list=[material_group_select]
+                df_category=df_category[df_category['Grade'].isin(material_group_select_list)]
                 #st.write("category percentage")
                 #st.write("*Exisitng*")
                 df_category['percentage']=(df_category['Demand_yearly']/df_category['Demand_yearly'].sum())*100
@@ -555,10 +567,10 @@ def main():
                     df_category_upd=pd.DataFrame()
                     df_category_upd['percentage']=percentage_upd
                     df_category_upd['Category']=category_upd
-                    df_category_upd['Grade']='Flyash Dry'
+                    df_category_upd['Grade']=material_group_select
                     
                     df_category_upd['Demand_yearly']=float(pc)*(df_category_upd['percentage'].astype(float)/100)
-                    df_category_upd['Plant_key']=plant_demand_change
+                    df_category_upd['Plant']=plant_demand_change
                     df_category_upd_show=df_category_upd[['Category','Grade','Demand_yearly','percentage']]
                     df_category_upd_show=pd.merge(df_category_upd_show,df_category,how='left',on=['Category','Grade'])
                     df_category_upd_show.index=range(1,len(df_category_upd_show)+1)
@@ -566,7 +578,7 @@ def main():
                     
                     st.write(df_category_upd_show)
                     #st.write("Existing Plant capacity "+str(round(plant_demand1_capacity,2)))
-                    plant_demand_upd=pd.merge(plant_demand_upd,df_category_upd,how='left',on=['Plant_key', 'Grade', 'Category'])
+                    plant_demand_upd=pd.merge(plant_demand_upd,df_category_upd,how='left',on=['Plant', 'Grade', 'Category'])
                     plant_demand_upd['Demand_yearly_x']=np.where(plant_demand_upd['Demand_yearly_y'].notnull(),plant_demand_upd['Demand_yearly_y'],plant_demand_upd['Demand_yearly_x'])
                     plant_demand_upd=plant_demand_upd.rename(columns={'Demand_yearly_x':'Demand_yearly'})
                     del plant_demand_upd['Demand_yearly_y']
@@ -585,24 +597,31 @@ def main():
                 try:
                     source_capacity_upd=pd.read_csv('source_capacity_upd.csv')
                 except:
-                    source_capacity_upd=pd.DataFrame()
-                    source_capacity_upd['Source_key']=len(plant_demand['grade_new'].unique().tolist())*source_capacity['Source_key'].unique().tolist()
-                    source_capacity_upd['grade_new']=len(source_capacity['Source_key'].unique().tolist())*plant_demand['grade_new'].unique().tolist()
-                    source_capacity_upd[['Grade', 'Category']]=source_capacity_upd['grade_new'].str.split("=",expand=True)
-                    source_capacity_upd=pd.merge(source_capacity_upd,source_capacity,how='left',on=['Source_key', 'grade_new'])
+                    source_capacity[['Grade', 'Category']]=source_capacity['grade_new'].str.split("=",expand=True)
+                    source_all_comb=pd.DataFrame()
+                    bs=source_capacity['Source'].unique().tolist()
+                    as1=source_capacity['grade_new'].unique().tolist()
+                    source_all_comb['combine']=[[x,y] for x in as1 for y in bs]
+                    source_all_comb['grade_new']=source_all_comb['combine'].str[0]
+                    source_all_comb['Source']=source_all_comb['combine'].str[1]
+                    del source_all_comb['combine'] 
+                    source_all_comb[['Grade', 'Category']]=source_all_comb['grade_new'].str.split("=",expand=True)
+                    source_capacity=source_capacity.groupby(['Source', 'Grade', 'Category','grade_new'])['Capacity_yearly'].sum().reset_index()
+                    source_capacity_upd=pd.merge(source_all_comb,source_capacity,how='left',on=['Source', 'Grade', 'Category','grade_new'])
                     source_capacity_upd=source_capacity_upd.fillna(0)
+                    
+#                    source_capacity[['Grade', 'Category']]=source_capacity['grade_new'].str.split("=",expand=True)
                 
                 st.subheader(f'***Source Filters***')
                 #creating dataframe for updating particular plant capacity
-                source_capacity[['Grade', 'Category']]=source_capacity['grade_new'].str.split("=",expand=True)
                 df_category_s=pd.DataFrame()
                 df_category_s['Category']=source_capacity['Category'].unique().tolist()+source_capacity['Category'].unique().tolist()
                 df_category_s['Grade']=source_capacity['Grade'].unique().tolist()+source_capacity['Grade'].unique().tolist()+source_capacity['Grade'].unique().tolist()
                 
                 #select plant to change plant capacity
-                source_capacity_change=st.selectbox("Select source",source_capacity['Source_key'].unique().tolist())
+                source_capacity_change=st.selectbox("Select source",source_capacity['Source'].unique().tolist())
                 source_capacity_change_list=[source_capacity_change]
-                source_capacity1_change=source_capacity[source_capacity['Source_key'].isin(source_capacity_change_list)]
+                source_capacity1_change=source_capacity[source_capacity['Source'].isin(source_capacity_change_list)]
                 
                 #make all combinations of selected plant
                 df_category_s=pd.merge(df_category_s,source_capacity1_change[['Grade', 'Category', 'Capacity_yearly']],how='left',on=['Category','Grade'])
@@ -611,7 +630,8 @@ def main():
                 
                 #select material group (fly ash type)
                 material_group_select_s=st.selectbox("Select material group for source",df_category_s['Grade'].unique().tolist())
-                df_category_s=df_category_s[df_category_s['Grade']==material_group_select_s]
+                material_group_select_s_list=[material_group_select_s]
+                df_category_s=df_category_s[df_category_s['Grade'].isin(material_group_select_s_list)]
                 #st.write("category percentage")
                 df_category_s['percentage']=(df_category_s['Capacity_yearly']/df_category_s['Capacity_yearly'].sum())*100
                 source_capacity1=df_category_s['Capacity_yearly'].sum()
@@ -621,6 +641,7 @@ def main():
                 #plant capacity
                 sc=st.text_input("Enter Source Capacity",str(round(source_capacity1,2)))
                 
+                df_category_s['percentage']=df_category_s['percentage'].fillna(0)
                 #best fly ash percentage
                 best_fly_ash_perc_s=df_category_s[df_category_s['Category']=='Best Fly Ash']
                 best_fly_ash_perc_s.index=range(0,len(best_fly_ash_perc_s))
@@ -643,10 +664,10 @@ def main():
                     df_category_upd_s=pd.DataFrame()
                     df_category_upd_s['percentage']=percentage_upd_s
                     df_category_upd_s['Category']=category_upd_s
-                    df_category_upd_s['Grade']='Flyash Dry'
+                    df_category_upd_s['Grade']=material_group_select_s
                     
                     df_category_upd_s['Capacity_yearly']=float(sc)*(df_category_upd_s['percentage'].astype(float)/100)
-                    df_category_upd_s['Source_key']=source_capacity_change
+                    df_category_upd_s['Source']=source_capacity_change
                     #st.write(df_category_upd_s)
                     df_category_upd_s_show=df_category_upd_s[['Category','Grade','Capacity_yearly','percentage']]
                     df_category_upd_s_show=pd.merge(df_category_upd_s_show,df_category_s,how='left',on=['Category','Grade'])
@@ -656,7 +677,7 @@ def main():
                     st.write(df_category_upd_s_show)
     
                     
-                    source_capacity_upd=pd.merge(source_capacity_upd,df_category_upd_s,how='left',on=['Source_key', 'Grade', 'Category'])
+                    source_capacity_upd=pd.merge(source_capacity_upd,df_category_upd_s,how='left',on=['Source', 'Grade', 'Category'])
                     #st.write(source_capacity_upd)
                     source_capacity_upd['Capacity_yearly_x']=np.where(source_capacity_upd['Capacity_yearly_y'].notnull(),source_capacity_upd['Capacity_yearly_y'],source_capacity_upd['Capacity_yearly_x'])
                     source_capacity_upd=source_capacity_upd.rename(columns={'Capacity_yearly_x':'Capacity_yearly'})
@@ -1015,8 +1036,8 @@ def main():
         
                     data_map2.index=range(0,len(data_map2))
                     data_map2_o.index=range(0,len(data_map2_o))
-                    st.write(data_map1)
-                    st.write(data_map2)
+#                    st.write(data_map1)
+#                    st.write(data_map2)
                     fig_l2=line_plot2(data_map2,data_map2_o,df_s,df_p,s1,s2,c,n1,n2,c1,c2,cc,nl1,nl2,df_s_e,df_p_e)
                     st.plotly_chart(fig_l2)
                     data1=data1.drop(columns=["grade_new"])
