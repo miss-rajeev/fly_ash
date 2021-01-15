@@ -1,11 +1,10 @@
 
-#Can we make a compact dashboard across several columns and with a dark theme?"""
+
 import io
 from typing import List, Optional
 
 #import markdown
 import matplotlib
-import matplotlib.pyplot as plt
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -69,7 +68,7 @@ def clear_linkagesp(p):
 ##"""
 #functions to upload xlsx files and download it
 #"""
-def to_excel(source_capacity,plant_demand,basic_cost,freight_cost,lat_long):
+def to_excel(source_capacity,plant_demand,basic_cost,freight_cost,lat_long,key_plant,key_source):
     output = BytesIO()
     writer = pd.ExcelWriter(output, engine='xlsxwriter')
     #data.to_excel(writer,sheet_name='Data',index=None)
@@ -78,6 +77,8 @@ def to_excel(source_capacity,plant_demand,basic_cost,freight_cost,lat_long):
     basic_cost.to_excel(writer,sheet_name='basic_cost',index=None)
     freight_cost.to_excel(writer,sheet_name='freight_cost',index=None)
     lat_long.to_excel(writer,sheet_name='lat_long',index=None)
+    key_plant.to_excel(writer,sheet_name='key_plant',index=None)
+    key_source.to_excel(writer,sheet_name='key_source',index=None)
     #ptpkm.to_excel(writer,sheet_name='PTPKM',index=None)
     writer.save()
     processed_data = output.getvalue()
@@ -389,7 +390,7 @@ def main():
         data_map=data_map.rename(columns={'FromLatitude':'Cluster_latitude','FromLongitude':'Cluster_longiutde'})
         del data_map['FromID']
         
-        file_view=st.selectbox("Select appropriate option to view data", ["Demand","Capacity","Basic cost","Freight cost","Lat Long"])
+        file_view=st.selectbox("Select appropriate option to view data", ["Demand","Capacity","Basic cost","Freight cost","Lat Long","Plant Key","Source Key"])
         if file_view == "Demand":
             plant_demand.index=range(1,len(plant_demand)+1)
             st.write(plant_demand)
@@ -410,11 +411,19 @@ def main():
             lat_long.index=range(1,len(lat_long)+1)
             st.write(lat_long)
             lat_long.index=range(0,len(lat_long)) 
+        elif file_view=="Plant Key":
+            key_plant.index=range(1,len(key_plant)+1)
+            st.write(key_plant)
+            key_plant.index=range(0,len(key_plant)) 
+        elif file_view=="Source Key":
+            key_source.index=range(1,len(key_source)+1)
+            st.write(key_source)
+            key_source.index=range(0,len(key_source))             
         else:
             st.write("")
             
         
-        val = to_excel(source_capacity,plant_demand,basic_cost,freight_cost,lat_long)
+        val = to_excel(source_capacity,plant_demand,basic_cost,freight_cost,lat_long,key_plant,key_source)
         b64 = base64.b64encode(val)
         href1= f'<a href="data:application/octet-stream;base64,{b64.decode()}" download="extract.xlsx">Click to download the input file format </a>' # decode b'abc' => abc
         st.markdown(href1, unsafe_allow_html=True)
@@ -431,15 +440,13 @@ def main():
         st.text("Please click on the map viewer present on the sidebar to your left to proceed")
         if uploader_prim is not None:
             df_dict=pd.read_excel(uploader_prim, None)
-            source_capacity=df_dict['Source_capacity']
-#            source_capacity['grade_new']=source_capacity['Grade']+'='+source_capacity['Category']
+            source_capacity=df_dict['source_capacity']
             plant_demand=df_dict['plant_demand']
-#            plant_demand['grade_new']=plant_demand['Grade']+'='+plant_demand['Category']
             basic_cost=df_dict['basic_cost']
-#            basic_cost['grade_new']=basic_cost['Grade']+'='+basic_cost['Category']
             freight_cost=df_dict['freight_cost']
-#            freight_cost['grade_new']=freight_cost['Grade']+'='+freight_cost['Category']
             lat_long=df_dict['lat_long']
+            key_plant=df_dict['key_plant']
+            key_source=df_dict['key_source']
             
         if st.sidebar.checkbox('Map Viewer'):
             clear_linkagesp(40)
@@ -730,7 +737,7 @@ def main():
                     #st.write(source_capacity_upd)
                     source_capacity_upd['Capacity_yearly_x']=np.where(source_capacity_upd['Capacity_yearly_y'].notnull(),source_capacity_upd['Capacity_yearly_y'],source_capacity_upd['Capacity_yearly_x'])
                     source_capacity_upd=source_capacity_upd.rename(columns={'Capacity_yearly_x':'Capacity_yearly'})
-                    st.write(source_capacity_upd)
+#                    st.write(source_capacity_upd)
                     del source_capacity_upd['Capacity_yearly_y']
                     del source_capacity_upd['percentage']
                     if st.checkbox('Submit',key=1):
@@ -778,14 +785,12 @@ def main():
 #                    
                     df_dis['FromID']=df_dis['FromID'].astype(str)
                     df_dis['ToID']=df_dis['ToID'].astype(str)
-                    file_lat_long_new=df_dis.copy()
+                    
                     df_dis_sp=df_dis[(df_dis['FromID'].str.contains('S')==True) & (df_dis['ToID'].str.contains('P')==True)]
                     
                     df_dis_sp['distance_slab']=pd.cut(df_dis_sp['Kilometres'],bins=[-1,100,200,300,400,500,600,700,9999],labels=['0-100','101-200','201-300','301-400','401-500','501-600','601-700','GT700'])
                     df_ptpkm_dis=pd.merge(df_dis_sp,ptpkm,how='left',left_on=['FromID','distance_slab'],right_on=['Source_code','distance_slab'])
-            
-#                    st.write("old",file_lat_long)
-#                    st.write("new",file_lat_long_new)
+         
                     #prep existinf function
                     data1=data1_prep(data,df_input,df_ptpkm_dis)
 
@@ -797,8 +802,6 @@ def main():
                     #plant demand, source capacity, handling cost and basic cost dictionary
                     plant_demand=plant_demand.dropna()
                     source_capacity=source_capacity.dropna()
-                  
-
                     
                     grade=plant_demand['grade_new'].unique().tolist()
                     df4=pd.DataFrame()
@@ -1051,6 +1054,7 @@ def main():
                         st.markdown("<h2 style='text-align: center; color: black;'>Results Summary </h2>", unsafe_allow_html=True)
                         st.markdown('---')
                         st.markdown("*Select appropriate filters to view results*")
+
                         source_select=st.multiselect("Select Source",d_prim4['Source'].unique().tolist())
                         if len(source_select)!=0:
                             data1=data1[data1["Source"].isin(source_select)]
@@ -1075,7 +1079,7 @@ def main():
                             data1=data1.copy()
                             d_prim4=d_prim4.copy()
                         cat_select=st.multiselect("Select Category",d_prim4['Category'].unique().tolist())
-                        if len(grade_select)!=0:
+                        if len(cat_select)!=0:
                             data1=data1[data1["Category"].isin(cat_select)]
                             d_prim4=d_prim4[d_prim4['Category'].isin(cat_select)]
                         else:
@@ -1084,10 +1088,13 @@ def main():
                             
                         exis=data1.groupby(["Source","Plant","Grade","Category"]).sum().reset_index()
                         st.subheader("Existing data view")
+                        exis.index=range(1,len(exis)+1)
                         st.write(exis)
                         st.subheader("Reallocated data view:")
                         final=d_prim4.groupby(["Source","Plant","Grade","Category"]).sum().reset_index()
+                        final.index=range(1,len(final)+1)
                         st.write(final)
+                       
                         st.markdown('---')
 #                        st.text("Thank you for using the dashboard! :)")
 #                        st.markdown("<h2 style='text-align: center; color: black;'>Thank you for using the Dashboard!</h2>", unsafe_allow_html=True)
@@ -1105,56 +1112,6 @@ def main():
 
 
 
-#    """Main function. Run this to run the app"""
-#    st.sidebar.title("Layout and Style Experiments")
-#    st.sidebar.header("Settings")
-#    st.markdown(
-#        """
-## Layout and Style Experiments
-#
-#The basic question is: Can we create a multi-column dashboard with plots, numbers and text using
-#the [CSS Grid](https://gridbyexample.com/examples)?
-#
-#Can we do it with a nice api?
-#Can have a dark theme?
-#"""
-#    )
-#
-#    select_block_container_style()
-#    add_resources_section()
-#
-#    # My preliminary idea of an API for generating a grid
-#    with Grid("1 1 1", color=COLOR, background_color=BACKGROUND_COLOR) as grid:
-#        grid.cell(
-#            class_="a",
-#            grid_column_start=2,
-#            grid_column_end=3,
-#            grid_row_start=1,
-#            grid_row_end=2,
-#        ).markdown("# This is A Markdown Cell")
-#        grid.cell("b", 2, 3, 2, 3).text("The cell to the left is a dataframe")
-#        grid.cell("c", 3, 4, 2, 3).plotly_chart(get_plotly_fig())
-#        grid.cell("d", 1, 2, 1, 3).dataframe(get_dataframe())
-#        grid.cell("e", 3, 4, 1, 2).markdown(
-#            "Try changing the **block container style** in the sidebar!"
-#        )
-#        grid.cell("f", 1, 3, 3, 4).text(
-#            "The cell to the right is a matplotlib svg image"
-#        )
-#        grid.cell("g", 3, 4, 3, 4).pyplot(get_matplotlib_plt())
-#
-#    st.plotly_chart(get_plotly_subplots())
-
-# =============================================================================
-# @st.cache
-# def load_image(img):
-# im =Image.open(os.path.join(img))
-# return im
-# @st.cache
-# def load_files_gdna():
-# b=load_image(r"gdnaf2.PNG")
-# return b
-# =============================================================================
 
 
 
