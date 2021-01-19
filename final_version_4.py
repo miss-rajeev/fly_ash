@@ -1,11 +1,10 @@
 
-#Can we make a compact dashboard across several columns and with a dark theme?"""
+
 import io
 from typing import List, Optional
 
 #import markdown
 import matplotlib
-import matplotlib.pyplot as plt
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -69,7 +68,7 @@ def clear_linkagesp(p):
 ##"""
 #functions to upload xlsx files and download it
 #"""
-def to_excel(source_capacity,plant_demand,basic_cost,freight_cost,lat_long):
+def to_excel(source_capacity,plant_demand,basic_cost,freight_cost,lat_long,key_plant,key_source):
     output = BytesIO()
     writer = pd.ExcelWriter(output, engine='xlsxwriter')
     #data.to_excel(writer,sheet_name='Data',index=None)
@@ -78,6 +77,8 @@ def to_excel(source_capacity,plant_demand,basic_cost,freight_cost,lat_long):
     basic_cost.to_excel(writer,sheet_name='basic_cost',index=None)
     freight_cost.to_excel(writer,sheet_name='freight_cost',index=None)
     lat_long.to_excel(writer,sheet_name='lat_long',index=None)
+    key_plant.to_excel(writer,sheet_name='key_plant',index=None)
+    key_source.to_excel(writer,sheet_name='key_source',index=None)
     #ptpkm.to_excel(writer,sheet_name='PTPKM',index=None)
     writer.save()
     processed_data = output.getvalue()
@@ -115,59 +116,6 @@ def data1_prep(data,df_input,df_ptpkm_dis):
     data1['Total_cost']=((((data1['Kilometres']*data1['ptpkm'])+data1['Other(Rs/MT)'])+data1['Basic Rate(Rs/MT)'])*data1['Qty(LE)(LMT)'])
     return data1
 
-def opti(d_prim,grade,basic_cost,plant_demand,source_capacity,freight_dict):
-    for i in grade:
-        g=i
-        basic_cost_gr=basic_cost[basic_cost.grade_new==i].sort_values(['Source_key'])
-        basic_cost_gr.dropna(inplace=True)
-        basic_cost_gr_dict=retro_dictify(basic_cost_gr[["Source_key","Basic_cost"]])
-        plant_demand_gr=plant_demand[plant_demand.grade_new==i]
-        if plant_demand_gr.Demand_yearly.sum()==0:
-            continue
-        source_capacity_gr=source_capacity[source_capacity.grade_new==i]
-        source_capacity_gr=source_capacity_gr[['Source_key','Capacity_yearly']].copy()
-        source_capacity_gr=source_capacity_gr.fillna(0).drop_duplicates()
-        source_capacity_gr_dict=retro_dictify(source_capacity_gr[['Source_key','Capacity_yearly']].copy())
-        plants=plant_demand_gr['Plant_key'].unique().tolist()
-        vendors=source_capacity_gr['Source_key'].unique().tolist()
-        plant_demand_gr=plant_demand_gr[['Plant_key','Demand_yearly']].copy()
-        plant_demand_gr.dropna(inplace=True)
-        plant_demand_gr_dict=retro_dictify(plant_demand_gr[['Plant_key','Demand_yearly']].copy())
-        routes_1=[(k,j) for k in vendors for j in plants]
-        #opti
-        prob=LpProblem("Transportation",LpMinimize,)
-        xi = LpVariable.dicts('xi',(vendors,plants) ,cat = 'Continuous',lowBound=0)
-        #obj fn
-        prob += lpSum(xi[k][j]*(freight_dict[k][j]) for (k,j) in routes_1)+lpSum(xi[k][j]*basic_cost_gr_dict[k]  for (k,j) in routes_1)
-        
-        #constraints
-        for k in vendors:
-            prob += lpSum(xi[k][j] for j in plants ) <= source_capacity_gr_dict[k]
-        
-        for j in plants:
-            prob += lpSum(xi[k][j] for k in vendors)==plant_demand_gr_dict[j]
-            
-        prob.solve()
-        p=[]
-        v=[]
-        q=[]    
-        for k in prob.variables():
-            if k.varValue!=0:
-                #print(i.name,"=", i.varValue)
-                t=k.name
-                s=t.split('_')
-                p.append(s[2])
-                v.append(s[1])
-                q.append(k.varValue)
-        d=pd.DataFrame(p)
-        d.rename(columns={0:"Plant_key"},inplace=True)
-        d['Source_key']=v
-        d['Quantity']=q
-        d['grade_new']=g
-        d_prim=d_prim.append(d)
-        return d_prim
-    
-
 @st.cache(allow_output_mutation=True)
 def fileUpload(df,sheet) -> pd.DataFrame:
     return pd.read_excel(df,sheet)
@@ -198,26 +146,9 @@ def to_excel_result(source_capacity,plant_demand,basic_cost):
 @st.cache    
 def line_plot1(df_linkages,df1,df2,s1,s2,c,n1,n2,c1,c2,nl1):
     df_linkages=df_linkages.drop_duplicates()
-    df_linkages.index=range(0,len(df_linkages))
-    fig = go.Figure(go.Scattermapbox(
-        mode = "markers",
-        lon = df1.iloc[:,2],
-        lat = df1.iloc[:,1],
-        marker = {'size': s1,'color': c1},
-        text=df1.iloc[:,0],
-        hoverinfo='text',
-        name=n1))
-   
-    fig.add_trace(go.Scattermapbox(
-       mode = "markers",
-       lon = df2.iloc[:,2],
-       lat = df2.iloc[:,1],
-       marker = {'size': s2,'color':c2},
-       text=df2.iloc[:,0],
-       hoverinfo='text',
-       name=n2))
+    df_linkages.index=range(0,len(df_linkages))    
     for i in range(0,1):    #x1y1, x2y2 link
-        fig.add_trace(go.Scattermapbox(
+        fig=go.Figure(go.Scattermapbox(
             mode="lines",
             lon=[df_linkages.iloc[:,2][i],df_linkages.iloc[:,5][i]],  #y1y2
            lat=[df_linkages.iloc[:,1][i],df_linkages.iloc[:,4][i]],   #x1x2
@@ -241,22 +172,7 @@ def line_plot1(df_linkages,df1,df2,s1,s2,c,n1,n2,c1,c2,nl1):
             below=None,
             showlegend=False))
     
-   
-    fig.update_layout(
-       margin ={'l':0,'t':0,'b':0,'r':0},
-       mapbox = {
-           'center': {'lon': 78.9629, 'lat': 20.5937},
-           'style': "stamen-terrain",
-           'center': {'lon': 78.9629, 'lat': 20.5937},
-           'zoom': 3.5},legend=dict(x=1,y=.1)
-           )
-    return fig
-
-@st.cache
-def line_plot2(df_linkages,df1_linkages,df1,df2,s1,s2,c,n1,n2,c1,c2,cc,nl1,nl2,df1e,df2e):
-    df_linkages=df_linkages.drop_duplicates()
-    df_linkages.index=range(0,len(df_linkages))
-    fig = go.Figure(go.Scattermapbox(
+    fig.add_trace(go.Scattermapbox(
         mode = "markers",
         lon = df1.iloc[:,2],
         lat = df1.iloc[:,1],
@@ -273,33 +189,31 @@ def line_plot2(df_linkages,df1_linkages,df1,df2,s1,s2,c,n1,n2,c1,c2,cc,nl1,nl2,d
        text=df2.iloc[:,0],
        hoverinfo='text',
        name=n2))
+
     
-    fig.add_trace(go.Scattermapbox(
-       mode = "markers",
-       lon = df1e.iloc[:,2],
-       lat = df1e.iloc[:,1],
-       marker = {'size': s1,'color':c1},
-       text=df1e.iloc[:,0],
-       hoverinfo='text',
-       name=n1,
-       showlegend=False))
-    fig.add_trace(go.Scattermapbox(
-       mode = "markers",
-       lon = df2e.iloc[:,2],
-       lat = df2e.iloc[:,1],
-       marker = {'size': s2,'color':c2},
-       text=df2e.iloc[:,0],
-       hoverinfo='text',
-       name=n2,
-       showlegend=False))
+   
+    fig.update_layout(
+       margin ={'l':0,'t':0,'b':0,'r':0},
+       mapbox = {
+           'center': {'lon': 78.9629, 'lat': 20.5937},
+           'style': "stamen-terrain",
+           'center': {'lon': 78.9629, 'lat': 20.5937},
+           'zoom': 3.5},legend=dict(x=1,y=.1)
+           )
+    return fig
+
+@st.cache
+def line_plot2(df_linkages,df1_linkages,df1,df2,s1,s2,c,n1,n2,c1,c2,cc,nl1,nl2,df1e,df2e):
+    df_linkages=df_linkages.drop_duplicates()
+    df_linkages.index=range(0,len(df_linkages))
     for i in range(0,1):
-        fig.add_trace(go.Scattermapbox(
+        fig=go.Figure(go.Scattermapbox(
             mode="lines",
             lon=[df_linkages.iloc[:,2][i],df_linkages.iloc[:,5][i]],
             lat=[df_linkages.iloc[:,1][i],df_linkages.iloc[:,4][i]],
             line=dict(width = 1, color = c),
             opacity=1,
-            text=df_linkages.iloc[:,0][i]+'-'+df_linkages.iloc[:,3][i],
+#            text=df_linkages.iloc[:,0][i]+'-'+df_linkages.iloc[:,3][i],
             hoverinfo='text',
             below=None,
             name=nl1,
@@ -311,7 +225,7 @@ def line_plot2(df_linkages,df1_linkages,df1,df2,s1,s2,c,n1,n2,c1,c2,cc,nl1,nl2,d
            lat=[df1_linkages.iloc[:,1][i],df1_linkages.iloc[:,4][i]],
             line=dict(width = 1, color = cc),
             opacity=1,
-            text=df1_linkages.iloc[:,0][i]+'-'+df1_linkages.iloc[:,3][i],
+#            text=df1_linkages.iloc[:,0][i]+'-'+df1_linkages.iloc[:,3][i],
             hoverinfo='text',
             below=None,
             name=nl2,
@@ -324,7 +238,7 @@ def line_plot2(df_linkages,df1_linkages,df1,df2,s1,s2,c,n1,n2,c1,c2,cc,nl1,nl2,d
            lat=[df_linkages.iloc[:,1][i],df_linkages.iloc[:,4][i]],
             line=dict(width = 1, color = c),
             opacity=1,
-            text=df_linkages.iloc[:,0][i]+'-'+df_linkages.iloc[:,3][i],
+#            text=df_linkages.iloc[:,0][i]+'-'+df_linkages.iloc[:,3][i],
             hoverinfo='text',
             below=None,
             showlegend=False))
@@ -336,10 +250,47 @@ def line_plot2(df_linkages,df1_linkages,df1,df2,s1,s2,c,n1,n2,c1,c2,cc,nl1,nl2,d
            lat=[df1_linkages.iloc[:,1][i],df1_linkages.iloc[:,4][i]],
             line=dict(width = 1, color = cc),
             opacity=1,
-            text=df1_linkages.iloc[:,0][i]+'-'+df1_linkages.iloc[:,3][i],
+#            text=df1_linkages.iloc[:,0][i]+'-'+df1_linkages.iloc[:,3][i],
             hoverinfo='text',
             below=None,
             showlegend=False))
+    
+    fig.add_trace(go.Scattermapbox(
+        mode = "markers",
+        lon = df1.iloc[:,2],
+        lat = df1.iloc[:,1],
+        marker = {'size': s1,'color': c1},
+        text=df1.iloc[:,0],
+        hoverinfo='text',
+        name="New Source",showlegend=True))
+   
+    fig.add_trace(go.Scattermapbox(
+       mode = "markers",
+       lon = df2.iloc[:,2],
+       lat = df2.iloc[:,1],
+       marker = {'size': s2,'color':c2},
+       text=df2.iloc[:,0],
+       hoverinfo='text',
+       name="New Plant",showlegend=True))
+    
+    fig.add_trace(go.Scattermapbox(
+       mode = "markers",
+       lon = df1e.iloc[:,2],
+       lat = df1e.iloc[:,1],
+       marker = {'size': s1,'color':c1},
+       text=df1e.iloc[:,0],
+       hoverinfo='text',
+       name="Old Source",
+       showlegend=True))
+    fig.add_trace(go.Scattermapbox(
+       mode = "markers",
+       lon = df2e.iloc[:,2],
+       lat = df2e.iloc[:,1],
+       marker = {'size': s2,'color':c2},
+       text=df2e.iloc[:,0],
+       hoverinfo='text',
+       name="Old Plant",
+       showlegend=True))
     
    
     fig.update_layout(
@@ -442,7 +393,7 @@ def main():
         data_map=data_map.rename(columns={'FromLatitude':'Cluster_latitude','FromLongitude':'Cluster_longiutde'})
         del data_map['FromID']
         
-        file_view=st.selectbox("Select appropriate option to view data", ["Demand","Capacity","Basic cost","Freight cost","Lat Long"])
+        file_view=st.selectbox("Select appropriate option to view data", ["Demand","Capacity","Basic cost","Freight cost","Lat Long","Plant Key","Source Key"])
         if file_view == "Demand":
             plant_demand.index=range(1,len(plant_demand)+1)
             st.write(plant_demand)
@@ -463,11 +414,19 @@ def main():
             lat_long.index=range(1,len(lat_long)+1)
             st.write(lat_long)
             lat_long.index=range(0,len(lat_long)) 
+        elif file_view=="Plant Key":
+            key_plant.index=range(1,len(key_plant)+1)
+            st.write(key_plant)
+            key_plant.index=range(0,len(key_plant)) 
+        elif file_view=="Source Key":
+            key_source.index=range(1,len(key_source)+1)
+            st.write(key_source)
+            key_source.index=range(0,len(key_source))             
         else:
             st.write("")
             
         
-        val = to_excel(source_capacity,plant_demand,basic_cost,freight_cost,lat_long)
+        val = to_excel(source_capacity,plant_demand,basic_cost,freight_cost,lat_long,key_plant,key_source)
         b64 = base64.b64encode(val)
         href1= f'<a href="data:application/octet-stream;base64,{b64.decode()}" download="extract.xlsx">Click to download the input file format </a>' # decode b'abc' => abc
         st.markdown(href1, unsafe_allow_html=True)
@@ -484,15 +443,13 @@ def main():
         st.text("Please click on the map viewer present on the sidebar to your left to proceed")
         if uploader_prim is not None:
             df_dict=pd.read_excel(uploader_prim, None)
-            source_capacity=df_dict['Source_capacity']
-#            source_capacity['grade_new']=source_capacity['Grade']+'='+source_capacity['Category']
+            source_capacity=df_dict['source_capacity']
             plant_demand=df_dict['plant_demand']
-#            plant_demand['grade_new']=plant_demand['Grade']+'='+plant_demand['Category']
             basic_cost=df_dict['basic_cost']
-#            basic_cost['grade_new']=basic_cost['Grade']+'='+basic_cost['Category']
             freight_cost=df_dict['freight_cost']
-#            freight_cost['grade_new']=freight_cost['Grade']+'='+freight_cost['Category']
             lat_long=df_dict['lat_long']
+            key_plant=df_dict['key_plant']
+            key_source=df_dict['key_source']
             
         if st.sidebar.checkbox('Map Viewer'):
             clear_linkagesp(40)
@@ -555,16 +512,7 @@ def main():
             df_s=df_s.drop_duplicates()
             df_p=data_map2[['Cluster/Unit','Cluster_latitude','Cluster_longiutde']].copy()
             df_p=df_p.drop_duplicates()
-    #        s1=7
-    #        s2=9
-    #        c='blue'
-    #        n1='Sources'
-    #        n2='Plants'
-    #        c1='red'
-    #        c2='green'
-    #        cc='brown'
-    #        nl1="Existing"
-    #        nl2="Optimal"
+
             s1=7
             s2=9
             c='blue'
@@ -783,7 +731,7 @@ def main():
                     #st.write(source_capacity_upd)
                     source_capacity_upd['Capacity_yearly_x']=np.where(source_capacity_upd['Capacity_yearly_y'].notnull(),source_capacity_upd['Capacity_yearly_y'],source_capacity_upd['Capacity_yearly_x'])
                     source_capacity_upd=source_capacity_upd.rename(columns={'Capacity_yearly_x':'Capacity_yearly'})
-                    st.write(source_capacity_upd)
+#                    st.write(source_capacity_upd)
                     del source_capacity_upd['Capacity_yearly_y']
                     del source_capacity_upd['percentage']
                     if st.checkbox('Submit',key=1):
@@ -825,7 +773,9 @@ def main():
                     #basic cost
                     basic_cost_ex=pd.merge(basic_cost_ex, source_code, how='left',on=['source_name_given'])
 #                    #plant demand
-
+#                    plant_demand_ex=pd.merge(plant_demand_ex,source_code,how='left',right_on=['source_name_given'],left_on=['Cluster/Unit'])
+#                    #source capacity
+#                    source_capacity_ex=pd.merge(source_capacity_ex,source_code,how='left',right_on=['source_name_given'],left_on=['source_name_given'])
 #                    
                     df_dis['FromID']=df_dis['FromID'].astype(str)
                     df_dis['ToID']=df_dis['ToID'].astype(str)
@@ -848,11 +798,10 @@ def main():
                     source_capacity=source_capacity.dropna()
                     
                     grade=plant_demand['grade_new'].unique().tolist()
-                    plant_demand=pd.merge(plant_demand,key_plant,on="Plant",how='left')
-                    
-                    
                     df4=pd.DataFrame()
                     df_final=pd.DataFrame()
+                    plant_demand=pd.merge(plant_demand,key_plant,on="Plant",how='left')
+
                     df_final['OD']=[[k,j] for k in plant_demand['Plant_key'].unique().tolist() for j in source_capacity['Source_key'].unique().tolist()]
                     df_final['FromID']=df_final.apply(lambda OD: OD.str[0])
                     df4['FromID']=df_final['FromID'].copy()
@@ -860,14 +809,74 @@ def main():
                     df4['ToID']=df_final['FromID'].copy()
                     df4=pd.merge(df4,freight_cost[['Source_key','Plant_key','Final_logistics_cost(per ton)']],how='left',left_on=['ToID','FromID'],right_on=['Source_key','Plant_key'])
                     df4=df4[['ToID','FromID','Final_logistics_cost(per ton)']].copy()
+                    
+                    #df4["ToID"].replace(" ","-",regex=True,inplace=True)
                     df4=df4.dropna()
-                    
                     freight_dict=retro_dictify(df4[['ToID','FromID','Final_logistics_cost(per ton)']].copy())
-                    
+                    d_prim=pd.DataFrame() 
                     st.markdown("*Select appropriate filters to view the optimized results*")
                     
-                    d_prim=pd.DataFrame() 
-                    d_prim=opti(d_prim,grade,basic_cost,plant_demand,source_capacity,freight_dict)
+#                    i="Flyash Dry=Average Fly Ash"
+                    
+                    for i in grade:
+                        g=i
+                        basic_cost_gr=basic_cost[basic_cost.grade_new==i].sort_values(['Source_key'])
+                        basic_cost_gr.dropna(inplace=True)
+                        #basic_cost_gr.drop_duplicates(['Source_key'],inplace=True)
+                        basic_cost_gr_dict=retro_dictify(basic_cost_gr[["Source_key","Basic_cost"]])
+                        plant_demand_gr=plant_demand[plant_demand.grade_new==i]
+                        if plant_demand_gr.Demand_yearly.sum()==0:
+                            continue
+                        #freight_gr=freight_cost[freight_cost.grade_new==i]
+                        source_capacity_gr=source_capacity[source_capacity.grade_new==i]
+                        source_capacity_gr=source_capacity_gr[['Source_key','Capacity_yearly']].copy()
+                        source_capacity_gr=source_capacity_gr.fillna(0).drop_duplicates()
+                    #        source_capacity_gr=source_capacity_gr[['Sources','contract_Capacity (yearly)']]
+                      
+                        
+                        #source_capacity_gr["Source"].replace(" ","-",regex=True,inplace=True)
+                        source_capacity_gr_dict=retro_dictify(source_capacity_gr[['Source_key','Capacity_yearly']].copy())
+                        plants=plant_demand_gr['Plant_key'].unique().tolist()
+                        vendors=source_capacity_gr['Source_key'].unique().tolist()
+                        plant_demand_gr=plant_demand_gr[['Plant_key','Demand_yearly']].copy()
+                        plant_demand_gr.dropna(inplace=True)
+                        plant_demand_gr_dict=retro_dictify(plant_demand_gr[['Plant_key','Demand_yearly']].copy())
+                        routes_1=[(k,j) for k in vendors for j in plants]
+                        #opti
+                        prob=LpProblem("Transportation",LpMinimize,)
+                        xi = LpVariable.dicts('xi',(vendors,plants) ,cat = 'Continuous',lowBound=0)
+                     
+                        prob += lpSum(xi[k][j]*(freight_dict[k][j]) for (k,j) in routes_1)+lpSum(xi[k][j]*basic_cost_gr_dict[k]  for (k,j) in routes_1)
+                        #prob += lpSum(xi[i][j]*((freight_dict[i][j]) +basic_cost_gr_dict[i])  for (i,j) in routes_1)
+                    
+                        #prob += lpSum(xi[i][j]*(((ptpkm_ptpkm_dict[i][j]*ptpkm_km_dict[i][j])+handling_cost_dict[g][i])+basic_cost_dict[g][i]) for (i,j) in routes_1)
+                        for k in vendors:
+                            prob += lpSum(xi[k][j] for j in plants ) <= source_capacity_gr_dict[k]
+                        
+                        for j in plants:
+                            prob += lpSum(xi[k][j] for k in vendors)==plant_demand_gr_dict[j]
+                            
+                        prob.solve()
+                        p=[]
+                        v=[]
+                        q=[]    
+                        for k in prob.variables():
+                            if k.varValue!=0:
+                                #print(i.name,"=", i.varValue)
+                                t=k.name
+                                s=t.split('_')
+                                p.append(s[2])
+                                v.append(s[1])
+                                q.append(k.varValue)
+                        d=pd.DataFrame(p)
+                        d.rename(columns={0:"Plant_key"},inplace=True)
+                        d['Source_key']=v
+                        d['Quantity']=q
+                        d['grade_new']=g
+#                        d=pd.merge(d,key[["Plant_key","Plant"]],how='left',on=['Plant_key'])
+#                        d=pd.merge(d,source_capacity[["Source_key","Source"]],how='left',on=['Source_key'])
+#                        
+                        d_prim=d_prim.append(d)
                     d_prim=d_prim.drop_duplicates().reset_index(drop=True)
                     d_prim=pd.merge(d_prim,freight_cost[["Source_key","Plant_key","final_rail_freight (per ton)","final_road_freight","Final_logistics_cost(per ton)","Mode_of_Transport"]],how='left',on=["Plant_key","Source_key"])
                     d_prim=pd.merge(d_prim,basic_cost[["Source_key","grade_new","Basic_cost"]],how='left',on=['Source_key','grade_new'])
@@ -881,6 +890,7 @@ def main():
                     d_summary['Difference (In Cr.)']=[round((data1['Total_cost'].sum()-d_prim['Total_cost'].sum())/100,0)]
                     del d_prim['Total_cost']
                     del data1['Total_cost']  
+#                    st.write(data1)
                     #map view
                     data_map_o=d_prim.copy()
                     data_map_o=pd.merge(data_map_o,lat_long,how='left',left_on=['Source_key'],right_on=['FromID'])
@@ -965,15 +975,19 @@ def main():
                         data_map_o=data_map_o.reset_index(drop=True)
             
                     
+#                    st.subheader("Data View")
+                    
+                    
                     d_prim4.index=range(1,len(d_prim4)+1)
                     d_prim4=d_prim4[["Source","Plant","Grade","Category","Quantity","final_rail_freight (per ton)","final_road_freight","Final_logistics_cost(per ton)","Mode_of_Transport","Basic_cost","Total_cost (In Cr.)","Source_key","Plant_key"]]
 #                    st.write(d_prim4)
                     d_prim.index=range(0,len(d_prim))
-                    data_map2_o=data_map_o[['Source_key','Source_latitude','Source_longitude','Plant_key','Plant_latitude','Plant_longitude']]
+                    data_map2_o=data_map_o[['Source','Source_latitude','Source_longitude','Plant','Plant_latitude','Plant_longitude']]
+
                     data_map2_o=data_map2_o.drop_duplicates()
-                    df_s=data_map2_o[['Source_key','Source_latitude','Source_longitude']].copy()
+                    df_s=data_map2_o[['Source','Source_latitude','Source_longitude']].copy()
                     df_s=df_s.drop_duplicates()
-                    df_p=data_map2_o[['Plant_key','Plant_latitude','Plant_longitude']].copy()
+                    df_p=data_map2_o[['Plant','Plant_latitude','Plant_longitude']].copy()
                     df_p=df_p.drop_duplicates()
                     
                     
@@ -986,9 +1000,15 @@ def main():
         
                     df_s_e=data_map2[['source_name_given','Source_latitude','Source_longitude']].copy()
                     df_p_e=data_map2[['Cluster/Unit','Cluster_latitude','Cluster_longiutde']].copy()
+                    
+                    
+                    
+                    
+                    
+                    
                 
                 
-                #st.write(data_map2)
+              
                 
                     s1=7
                     s2=9
@@ -1005,9 +1025,9 @@ def main():
         
                     data_map2.index=range(0,len(data_map2))
                     data_map2_o.index=range(0,len(data_map2_o))
-#                    st.write(data_map1)
-#                    st.write(data_map2)
+
                     fig_l2=line_plot2(data_map2,data_map2_o,df_s,df_p,s1,s2,c,n1,n2,c1,c2,cc,nl1,nl2,df_s_e,df_p_e)
+                    
                     st.plotly_chart(fig_l2)
                     data1=data1.drop(columns=["grade_new"])
                     data1=data1.rename(columns={"category":"Category","material_group_new":"Grade","source_name_given":"Source","Cluster/Unit":"Plant","material_group_new":"Grade","category":"Category","Qty(LE)(LMT)":"Quantity",'freight_new':'Freight_cost','Basic Rate(Rs/MT)':'Basic_cost'})
@@ -1022,7 +1042,7 @@ def main():
                     st.markdown(href1, unsafe_allow_html=True)
                     
                     if st.sidebar.checkbox("Results Summary"):
-                        clear_linkagesp(100)
+                        clear_linkagesp(107)
 #                        clear_linkagesp(12)
                         st.markdown("<h1 style='text-align: center; color: red;'>Fly Ash Procurement Dashboard</h1>", unsafe_allow_html=True)
                         st.markdown("<h2 style='text-align: center; color: black;'>Results Summary </h2>", unsafe_allow_html=True)
@@ -1062,15 +1082,22 @@ def main():
                             
                         exis=data1.groupby(["Source","Plant","Grade","Category"]).sum().reset_index()
                         st.subheader("Existing data view")
+                        exis.index=range(1,len(exis)+1)
                         st.write(exis)
                         st.subheader("Reallocated data view:")
                         final=d_prim4.groupby(["Source","Plant","Grade","Category"]).sum().reset_index()
+                        final.index=range(1,len(final)+1)
                         st.write(final)
+                       
                         st.markdown('---')
 #                        st.text("Thank you for using the dashboard! :)")
 #                        st.markdown("<h2 style='text-align: center; color: black;'>Thank you for using the Dashboard!</h2>", unsafe_allow_html=True)
                         
                         
+
+
+
+
 
 
 
